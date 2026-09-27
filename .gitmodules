@@ -1,0 +1,6 @@
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "external/rplidar_sdk"]
+	path = external/rplidar_sdk
+	url = https://github.com/Slamtec/rplidar_sdk.git
