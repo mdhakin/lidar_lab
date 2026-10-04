@@ -63,7 +63,7 @@ static void DrawLidarView(const LidarScan& scan, float displayRangeM) {
 
     const float y = point.distanceM * std::sin(radians);
 
-    const ImVec2 screenPoint(center.x + x * pixelsPerMeter, center.y - y * pixelsPerMeter);
+    const ImVec2 screenPoint(center.x + y * pixelsPerMeter, center.y - x * pixelsPerMeter);
 
     drawList->AddCircleFilled(screenPoint, 2.0f, IM_COL32(0, 255, 0, 255));
   }
