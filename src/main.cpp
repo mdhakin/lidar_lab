@@ -8,21 +8,28 @@
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
+#include "gnc/target_selector.h"
 #include "imgui.h"
 #include "lidar.h"
-
+#include "scan_filter.h"
 static constexpr float PI = 3.14159265358979323846f;
 
 static void glfw_error_callback(int error, const char* description) {
   std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-static void DrawLidarView(const LidarScan& scan, float displayRangeM) {
+static void DrawLidarView(const LidarScan& scan, const NavigationTarget& target, float& displayRangeM) {
   ImGui::Begin("C1 Lidar");
 
   ImGui::SliderFloat("Display Range", &displayRangeM, 1.0f, 10.0f, "%.1f m");
 
   ImGui::Text("Points: %zu", scan.points.size());
+  if (target.valid) {
+    ImGui::Text("GNC Target: %.1f deg | %.2f m | Confidence: %.2f", target.headingDeg, target.distanceM,
+                target.confidence);
+  } else {
+    ImGui::TextDisabled("GNC Target: No valid candidate");
+  }
 
   const ImVec2 available = ImGui::GetContentRegionAvail();
 
@@ -66,6 +73,27 @@ static void DrawLidarView(const LidarScan& scan, float displayRangeM) {
     const ImVec2 screenPoint(center.x + y * pixelsPerMeter, center.y - x * pixelsPerMeter);
 
     drawList->AddCircleFilled(screenPoint, 2.0f, IM_COL32(0, 255, 0, 255));
+  }
+
+  // Aries-GNC candidate target.
+  if (target.valid) {
+    const float radians = target.headingDeg * PI / 180.0f;
+
+    const float x = target.distanceM * std::cos(radians);
+    const float y = target.distanceM * std::sin(radians);
+
+    // Use the same C1-to-screen transformation as the LiDAR points.
+    const ImVec2 targetScreen(center.x + y * pixelsPerMeter, center.y - x * pixelsPerMeter);
+
+    const ImU32 targetColor = IM_COL32(255, 210, 40, 255);
+
+    // Direction line.
+    drawList->AddLine(center, targetScreen, targetColor, 3.0f);
+
+    // Target marker.
+    drawList->AddCircleFilled(targetScreen, 6.0f, targetColor);
+
+    drawList->AddCircle(targetScreen, 11.0f, targetColor, 24, 2.0f);
   }
 
   // Reserve the canvas area in ImGui.
@@ -119,18 +147,34 @@ int main() {
   ImGui_ImplOpenGL3_Init(glslVersion);
 
   float displayRangeM = 5.0f;
+  ScanFilter scanFilter;
+  uint64_t lastProcessedSequence = 0;
 
+  LidarScan rawScan;
+  LidarScan stableScan;
+
+  TargetSelector targetSelector;
+  NavigationTarget currentTarget;
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
 
-    LidarScan scan;
-    lidar.getLatestScan(scan);
+    LidarScan incomingScan;
+
+    if (lidar.getLatestScan(incomingScan) && incomingScan.sequence != lastProcessedSequence) {
+      lastProcessedSequence = incomingScan.sequence;
+
+      rawScan = std::move(incomingScan);
+
+      scanFilter.addScan(rawScan);
+      stableScan = scanFilter.getStableScan();
+      currentTarget = targetSelector.selectTarget(stableScan);
+    }
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    DrawLidarView(scan, displayRangeM);
+    DrawLidarView(stableScan, currentTarget, displayRangeM);
 
     ImGui::Render();
 

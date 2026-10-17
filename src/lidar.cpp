@@ -167,12 +167,16 @@ void Lidar::stop() {
 }
 
 void Lidar::acquisitionLoop() {
+  uint64_t sequence = 0;
+
   while (running_) {
     LidarScan scan;
 
     if (!acquireScan(scan)) {
       continue;
     }
+
+    scan.sequence = ++sequence;
 
     {
       std::lock_guard<std::mutex> lock(scanMutex_);

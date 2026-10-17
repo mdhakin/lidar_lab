@@ -7,6 +7,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdint>
 
 struct LidarPoint {
   float angleDeg = 0.0f;
@@ -15,6 +16,7 @@ struct LidarPoint {
 };
 
 struct LidarScan {
+  uint64_t sequence = 0;
   std::vector<LidarPoint> points;
 };
 

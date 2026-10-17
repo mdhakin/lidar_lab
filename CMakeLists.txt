@@ -20,6 +20,8 @@ find_package(glfw3 REQUIRED)
 add_executable(lidar_lab
     src/main.cpp
     src/lidar.cpp
+    src/scan_filter.cpp
+    src/gnc/target_selector.cpp
 
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
@@ -31,6 +33,7 @@ add_executable(lidar_lab
 
 target_include_directories(lidar_lab PRIVATE
     src
+    src/gnc
 
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
