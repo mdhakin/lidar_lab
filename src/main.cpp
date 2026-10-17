@@ -8,6 +8,7 @@
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
+#include "gnc/heading_tracker.h"
 #include "gnc/target_selector.h"
 #include "imgui.h"
 #include "lidar.h"
@@ -18,7 +19,9 @@ static void glfw_error_callback(int error, const char* description) {
   std::fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
 
-static void DrawLidarView(const LidarScan& scan, const NavigationTarget& target, float& displayRangeM) {
+static void DrawLidarView(const LidarScan& scan, const LidarScan& rawScan, const NavigationTarget& target,
+                          float& displayRangeM, HeadingTracker& headingTracker, HeadingEstimate& headingEstimate,
+                          NavigationTarget& lockedTarget, bool& targetLocked) {
   ImGui::Begin("C1 Lidar");
 
   ImGui::SliderFloat("Display Range", &displayRangeM, 1.0f, 10.0f, "%.1f m");
@@ -95,11 +98,49 @@ static void DrawLidarView(const LidarScan& scan, const NavigationTarget& target,
 
     drawList->AddCircle(targetScreen, 11.0f, targetColor, 24, 2.0f);
   }
+  ImGui::Separator();
+  ImGui::Text("Heading Tracking");
 
+  if (ImGui::Button("Capture Reference")) {
+    if (!rawScan.points.empty()) {
+      headingTracker.setReference(rawScan);
+
+      lockedTarget = target;
+      targetLocked = target.valid;
+
+      headingEstimate = HeadingEstimate{};
+    }
+  }
+
+  ImGui::SameLine();
+
+  if (ImGui::Button("Reset Tracking")) {
+    headingTracker.reset();
+    headingEstimate = HeadingEstimate{};
+    targetLocked = false;
+  }
+
+  if (headingTracker.hasReference()) {
+    if (headingEstimate.valid) {
+      ImGui::Text("Estimated Rotation: %.2f deg", headingEstimate.rotationDeg);
+
+      ImGui::Text("Matching Error: %.3f", headingEstimate.matchingError);
+
+      ImGui::Text("Confidence: %.2f", headingEstimate.confidence);
+
+      if (targetLocked) {
+        const float remainingError = lockedTarget.headingDeg - headingEstimate.rotationDeg;
+
+        ImGui::Text("Remaining Target Error: %.2f deg", remainingError);
+      }
+    } else {
+      ImGui::TextDisabled("Waiting for valid heading estimate...");
+    }
+  }
   // Reserve the canvas area in ImGui.
   ImGui::Dummy(ImVec2(size, size));
 
-  ImGui::End();
+    ImGui::End();
 }
 
 int main() {
@@ -155,6 +196,12 @@ int main() {
 
   TargetSelector targetSelector;
   NavigationTarget currentTarget;
+
+  HeadingTracker headingTracker;
+  HeadingEstimate headingEstimate;
+  NavigationTarget lockedTarget;
+
+  bool targetLocked = false;
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
 
@@ -168,13 +215,20 @@ int main() {
       scanFilter.addScan(rawScan);
       stableScan = scanFilter.getStableScan();
       currentTarget = targetSelector.selectTarget(stableScan);
+      // Estimate heading relative to the captured reference.
+      // Use raw scans because the temporal filter assumes
+      // the sensor remains approximately stationary.
+      if (headingTracker.hasReference()) {
+        headingEstimate = headingTracker.estimate(rawScan);
+      }
     }
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    DrawLidarView(stableScan, currentTarget, displayRangeM);
+    DrawLidarView(stableScan, rawScan, currentTarget, displayRangeM, headingTracker, headingEstimate, lockedTarget,
+                  targetLocked);
 
     ImGui::Render();
 
