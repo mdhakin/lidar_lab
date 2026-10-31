@@ -23,6 +23,7 @@ add_executable(lidar_lab
     src/scan_filter.cpp
     src/gnc/target_selector.cpp
     src/gnc/heading_tracker.cpp
+    src/gnc/scan_matcher_2d.cpp
 
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp

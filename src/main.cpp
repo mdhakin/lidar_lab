@@ -9,10 +9,12 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "gnc/heading_tracker.h"
+#include "gnc/scan_matcher_2d.h"
 #include "gnc/target_selector.h"
 #include "imgui.h"
 #include "lidar.h"
 #include "scan_filter.h"
+
 static constexpr float PI = 3.14159265358979323846f;
 
 static void glfw_error_callback(int error, const char* description) {
@@ -21,7 +23,8 @@ static void glfw_error_callback(int error, const char* description) {
 
 static void DrawLidarView(const LidarScan& scan, const LidarScan& rawScan, const NavigationTarget& target,
                           float& displayRangeM, HeadingTracker& headingTracker, HeadingEstimate& headingEstimate,
-                          NavigationTarget& lockedTarget, bool& targetLocked) {
+                          NavigationTarget& lockedTarget, bool& targetLocked, ScanMatchResult& scanMatchResult,
+                          LidarScan& icpReferenceScan, bool& icpReferenceCaptured) {
   ImGui::Begin("C1 Lidar");
 
   ImGui::SliderFloat("Display Range", &displayRangeM, 1.0f, 10.0f, "%.1f m");
@@ -112,6 +115,43 @@ static void DrawLidarView(const LidarScan& scan, const LidarScan& rawScan, const
     }
   }
 
+  ImGui::Separator();
+  ImGui::Text("2D Scan Matching (ICP)");
+
+  if (ImGui::Button("Capture ICP Reference")) {
+    if (!rawScan.points.empty()) {
+      icpReferenceScan = rawScan;
+      icpReferenceCaptured = true;
+      scanMatchResult = ScanMatchResult{};
+    }
+  }
+
+  ImGui::SameLine();
+
+  if (ImGui::Button("Reset ICP")) {
+    icpReferenceScan = LidarScan{};
+    icpReferenceCaptured = false;
+    scanMatchResult = ScanMatchResult{};
+  }
+
+  if (icpReferenceCaptured) {
+    if (scanMatchResult.valid) {
+      ImGui::Text("Translation X: %.3f m", scanMatchResult.relativePose.xM);
+
+      ImGui::Text("Translation Y: %.3f m", scanMatchResult.relativePose.yM);
+
+      ImGui::Text("Rotation: %.2f deg", scanMatchResult.relativePose.headingRad * 180.0 / PI);
+
+      ImGui::Text("Matching Error: %.4f m", scanMatchResult.matchingErrorM);
+
+      ImGui::Text("Matched Points: %u", scanMatchResult.matchedPoints);
+
+      ImGui::Text("Match Coverage: %.2f", scanMatchResult.confidence);
+    } else {
+      ImGui::TextDisabled("Waiting for valid ICP match...");
+    }
+  }
+
   ImGui::SameLine();
 
   if (ImGui::Button("Reset Tracking")) {
@@ -140,7 +180,7 @@ static void DrawLidarView(const LidarScan& scan, const LidarScan& rawScan, const
   // Reserve the canvas area in ImGui.
   ImGui::Dummy(ImVec2(size, size));
 
-    ImGui::End();
+  ImGui::End();
 }
 
 int main() {
@@ -201,6 +241,12 @@ int main() {
   HeadingEstimate headingEstimate;
   NavigationTarget lockedTarget;
 
+  ScanMatcher2D scanMatcher;
+  ScanMatchResult scanMatchResult;
+
+  LidarScan icpReferenceScan;
+  bool icpReferenceCaptured = false;
+
   bool targetLocked = false;
   while (!glfwWindowShouldClose(window)) {
     glfwPollEvents();
@@ -221,6 +267,11 @@ int main() {
       if (headingTracker.hasReference()) {
         headingEstimate = headingTracker.estimate(rawScan);
       }
+      // Estimate translation and rotation relative to
+      // the captured ICP reference scan.
+      if (icpReferenceCaptured) {
+        scanMatchResult = scanMatcher.match(icpReferenceScan, rawScan);
+      }
     }
 
     ImGui_ImplOpenGL3_NewFrame();
@@ -228,7 +279,7 @@ int main() {
     ImGui::NewFrame();
 
     DrawLidarView(stableScan, rawScan, currentTarget, displayRangeM, headingTracker, headingEstimate, lockedTarget,
-                  targetLocked);
+                  targetLocked, scanMatchResult, icpReferenceScan, icpReferenceCaptured);
 
     ImGui::Render();
 
